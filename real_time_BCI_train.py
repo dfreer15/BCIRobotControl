@@ -4,6 +4,8 @@ import pyriemann
 import numpy as np
 from mne.io import read_raw_edf
 import math
+import csv
+import pandas
 
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import confusion_matrix
@@ -103,7 +105,8 @@ def get_data():
         data_train = eeg_io_pp_2.norm_dataset(data_train)
     else:
         # data_dir = '/homes/df1215/Downloads/eeg_test_data/'
-        data_dir = '/data/EEG_Data/adaptive_eeg_test_data/'
+        # data_dir = '/data/EEG_Data/adaptive_eeg_test_data/'
+        data_dir = 'D:/'
         data = np.genfromtxt(data_dir + 'Daniel_0/df_FB_001_data.csv', delimiter=',')
         labels = np.genfromtxt(data_dir + 'Daniel_0/df_FB_001_markers.csv', delimiter=',')
         # data = np.genfromtxt(data_dir + 'Fani_0/fd_FB_001_data.csv', delimiter=',')
@@ -131,7 +134,8 @@ def get_test_data():
     elif dataset == "gtec":
         file = "daniel_WET_3class"
         # data_test, label_test = eeg_io_pp.get_data_gtec(dataset_dir, file, n_classes)
-        data_dir = '/data/EEG_Data/adaptive_eeg_test_data/'
+        # data_dir = '/data/EEG_Data/adaptive_eeg_test_data/'
+        data_dir = 'D:/'
         # data = np.genfromtxt(data_dir + 'signal/' + file + '_01.csv', delimiter=';')
         data = np.genfromtxt(data_dir + 'Daniel_0/df_FB_001_data.csv', delimiter=',')
         # data = np.genfromtxt(data_dir + 'Fani_0/fd_FB_001_data.csv', delimiter=',')
@@ -288,7 +292,7 @@ def bci_buffer_rt(current_data, buffer_size, iter_i):
 
 
 def iter_bci_buffer(current_data, iter_n):
-    real_time = False
+    real_time = True
     buffer_size = current_data.shape[0]
     if real_time:
         current_data = bci_buffer_rt(current_data, buffer_size, iter_n)
@@ -306,11 +310,26 @@ def read_bci_data(iter_n):
         data = data_receiver.receive()
     for i in range(data.shape[0]):
         iter_n += 1
-        yield data[i], iter_n
+        final_data.append(data[i, 0:num_channels])
+        yield data[i, 0:num_channels], iter_n
+
+
+def read_bci_markers():
+    markers = markers_receiver.receive()
+    # while markers.shape[0] < 1:
+    #     markers = markers_receiver.receive()
+    for i in range(markers.shape[0]):
+        if len(final_markers) > 0:
+            if int(markers[i]) != final_markers[len(final_markers) - 1]:
+                print(int(markers[i]))
+                #print(final_markers[len(final_markers) - 1])
+                final_markers.append(int(markers[i]))
+        else:
+            final_markers.append(int(markers[i]))
 
 
 def get_bci_class(bci_iter, clf, num_channels=22):
-    filter_rt = True
+    filter_rt = False
 
     buffer_size = int(freq*window_size)
     label = [0]
@@ -320,7 +339,6 @@ def get_bci_class(bci_iter, clf, num_channels=22):
     buffer_data = iter_bci_buffer(buffer_data, bci_iter)
     # print(buffer_data)
     if filter_rt:
-        # print('filter_rt!')
         buffer_data = eeg_io_pp.butter_bandpass_filter(buffer_data, 7, 30, freq)
 
     x1 = eeg_io_pp_2.norm_dataset(buffer_data)
@@ -340,16 +358,28 @@ def get_bci_class(bci_iter, clf, num_channels=22):
 
 
 def init_receiver():
-    global data_receiver
-    data_receiver = LSLa.lslReceiver(True, True)
+    global data_receiver, markers_receiver, num_channels, final_data, final_markers
+    data_receiver = LSLa.lslReceiver('data', True, True)
+    num_channels = 32
+    markers_receiver = LSLa.lslReceiver('markers', True, True)
+    final_data = []
+    final_markers = []
     return
 
 
 def save_data():
-    global final_data, final_label
-    final_data = final_data[:bci_iter]
-    np.save(data_out_file, final_data)
-    np.save(label_out_file, final_label)
+    final_data_array = np.asarray(final_data)
+    print(final_data_array.shape)
+    np.savetxt("final_data.csv", final_data_array, delimiter=",")
+
+    final_markers_array = np.asarray(final_markers)
+    print(final_markers_array)
+    np.savetxt("final_markers.csv", final_markers_array, delimiter=",")
+
+    print(final_data_array.shape)
+
+    # final_data_array = pandas.array(final_data)
+    # final_data_array.to_csv('final_data.csv')
     return
 
 
