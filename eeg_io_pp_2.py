@@ -183,26 +183,39 @@ def label_data_2a_val(signal, time, events, freq, remove_rest=False):
     return signal_out, np.asarray(final_labels)
 
 
-def label_data_lsl(data, label_in, n_channels=16, classes=5):
+def label_data_lsl(data, label_in, n_channels=16, classes=4):
     j = 1
     # classes=4
+
+    # label_source = "PsychoPy"
+    label_source = "Unity_VR"
+
+    if label_source == "PsychoPy":
+        left_label, right_label, up_label, down_label = 300, 200, 400, 500
+        half_sec = 500
+    elif label_source == "Unity_VR":
+        left_label, right_label, up_label, down_label = 0, 1, 2, 3
+        half_sec = 0.5
+
+    unique, counts = np.unique(label_in[:, 1], return_counts=True)
+    print("Labels: ", unique, counts)
     data_out = np.zeros((data.shape[0], n_channels))
     label_out = np.zeros(len(data))
     if classes == 3:
         for i in range(len(data)):
             data_out[i] = data[i, 1:n_channels + 1]
             # print(label_in[j, 0], data[i, 0])
-            if label_in[j, 0] + 500 < data[i, 0] < label_in[j, 0] + 2500:
-                if label_in[j, 1] == 300:  # means left
+            if label_in[j, 0] + half_sec < data[i, 0] < label_in[j, 0] + 5.0*half_sec:
+                if label_in[j, 1] == left_label:  # means left
                     label_out[i] = 1
-                elif label_in[j, 1] == 200: # means right
+                elif label_in[j, 1] == right_label:  # means right
                     label_out[i] = 2
                 else:
                     label_out[i] = 0
-            elif data[i, 0] > label_in[j, 0] + 2500:
-                if label_in[j, 1] == 300:  # means left
+            elif data[i, 0] > label_in[j, 0] + 5.0*half_sec:
+                if label_in[j, 1] == left_label:  # means left
                     label_out[i] = 1
-                elif label_in[j, 1] == 200: # means right
+                elif label_in[j, 1] == right_label:   # means right
                     label_out[i] = 2
                 else:
                     label_out[i] = 0
@@ -212,22 +225,22 @@ def label_data_lsl(data, label_in, n_channels=16, classes=5):
     elif classes == 2:
         i = 0
         for t in range(len(data)):
-            if label_in[j, 0] + 500 < data[t, 0] < label_in[j, 0] + 2500:
-                if label_in[j, 1] == 300:  # means left
+            if label_in[j, 0] + half_sec < data[t, 0] < label_in[j, 0] + 5.0*half_sec:
+                if label_in[j, 1] == left_label:  # means left
                     data_out[i] = data[t, 1:n_channels + 1]
                     label_out[i] = 0
                     i += 1
-                elif label_in[j, 1] == 200: # means right
+                elif label_in[j, 1] == right_label:  # means right
                     data_out[i] = data[t, 1:n_channels + 1]
                     label_out[i] = 1
                     i += 1
-            elif data[t, 0] > label_in[j, 0] + 2500:
-                if label_in[j, 1] == 300:  # means left
+            elif data[t, 0] > label_in[j, 0] + 5.0*half_sec:
+                if label_in[j, 1] == left_label:  # means left
                     data_out[i] = data[t, 1:n_channels + 1]
                     label_out[i] = 0
                     i += 1
                     j = j + 1
-                elif label_in[j, 1] == 200:  # means right
+                elif label_in[j, 1] == right_label:  # means right
                     data_out[i] = data[t, 1:n_channels + 1]
                     label_out[i] = 1
                     i += 1
@@ -240,67 +253,71 @@ def label_data_lsl(data, label_in, n_channels=16, classes=5):
         i = 0
         for t in range(len(data)):
             try:
-                if label_in[j, 0] + 500 < data[t, 0] < label_in[j, 0] + 2500:
-                    if label_in[j, 1] == 300:  # means left
+                if label_in[j, 0] + half_sec < data[t, 0] < label_in[j, 0] + 5.0*half_sec:
+                    if label_in[j, 1] == left_label:  # means left
                         data_out[i] = data[t, 1:n_channels + 1]
                         label_out[i] = 0
                         i += 1
-                    elif label_in[j, 1] == 200:  # means right
+                    elif label_in[j, 1] == right_label:  # means right
                         data_out[i] = data[t, 1:n_channels + 1]
                         label_out[i] = 1
                         i += 1
-                    elif label_in[j, 1] == 400:  # means up
+                    elif label_in[j, 1] == up_label:  # means up
                         data_out[i] = data[t, 1:n_channels + 1]
                         label_out[i] = 2
                         i += 1
-                    elif label_in[j, 1] == 500:  # means down
+                    elif label_in[j, 1] == down_label:  # means down
                         data_out[i] = data[t, 1:n_channels + 1]
                         label_out[i] = 3
                         i += 1
-                elif data[t, 0] > label_in[j, 0] + 2500:
-                    if label_in[j, 1] == 300:  # means left
+                elif data[t, 0] > label_in[j, 0] + 5.0*half_sec:
+                    if label_in[j, 1] == left_label:  # means left
                         data_out[i] = data[t, 1:n_channels + 1]
                         label_out[i] = 0
                         i += 1
-                    elif label_in[j, 1] == 200:  # means right
+                    elif label_in[j, 1] == right_label:  # means right
                         data_out[i] = data[t, 1:n_channels + 1]
                         label_out[i] = 1
                         i += 1
-                    elif label_in[j, 1] == 400:  # means up
+                    elif label_in[j, 1] == up_label:  # means up
                         data_out[i] = data[t, 1:n_channels + 1]
                         label_out[i] = 2
                         i += 1
-                    elif label_in[j, 1] == 500:  # means down
+                    elif label_in[j, 1] == down_label:  # means down
                         data_out[i] = data[t, 1:n_channels + 1]
                         label_out[i] = 3
                         i += 1
                     j += 1
             except IndexError:
                 continue
+        data_out = data_out[:i]
+        label_out = label_out[:i]
+        unique, counts = np.unique(label_out, return_counts=True)
+        print("Labels: ", unique, counts)
 
     elif classes == 5:
         for i in range(len(data)):
             data_out[i] = data[i, 1:n_channels + 1]
             # print(label_in[j, 0], data[i, 0])
-            if label_in[j, 0] + 500 < data[i, 0] < label_in[j, 0] + 2500:
-                if label_in[j, 1] == 300:  # means left
+            if label_in[j, 0] + half_sec < data[i, 0] < label_in[j, 0] + 5.0*half_sec:
+                if label_in[j, 1] == left_label:  # means left
                     label_out[i] = 1
-                elif label_in[j, 1] == 200:  # means right
+                elif label_in[j, 1] == right_label:  # means right
                     label_out[i] = 2
-                elif label_in[j, 1] == 400:  # means up
+                elif label_in[j, 1] == up_label:  # means up
                     label_out[i] = 3
-                elif label_in[j, 1] == 500:  # means down
+                elif label_in[j, 1] == down_label:  # means down
                     label_out[i] = 4
                 else:
                     label_out[i] = 0
             elif data[i, 0] > label_in[j, 0] + 2500:
-                if label_in[j, 1] == 300:  # means left
+                if label_in[j, 1] == left_label:  # means left
                     label_out[i] = 1
-                elif label_in[j, 1] == 200:  # means right
+                elif label_in[j, 1] == right_label:  # means right
                     label_out[i] = 2
-                elif label_in[j, 1] == 400:  # means up
+                elif label_in[j, 1] == up_label:  # means up
                     label_out[i] = 3
-                elif label_in[j, 1] == 500:  # means down
+                elif label_in[j, 1] == down_label:  # means down
                     label_out[i] = 4
                 else:
                     label_out[i] = 0
@@ -410,19 +427,22 @@ def find_cov_matrices(data):
 
 def norm_dataset(dataset_1D):
     norm_dataset_1D = np.zeros(dataset_1D.shape)
-    for i in range(dataset_1D.shape[0]):
-        norm_dataset_1D[i] = feature_normalize(dataset_1D[i])
+    # for i in range(dataset_1D.shape[0]):
+    #     norm_dataset_1D[i] = feature_normalize(dataset_1D[i])
+    for i in range(dataset_1D.shape[1]):
+        norm_dataset_1D[:, i] = feature_normalize(dataset_1D[:, i])
     return norm_dataset_1D
 
 
 def feature_normalize(data):
-    # print(data)
     mean = data[data.nonzero()].mean()
     sigma = data[data.nonzero()].std()
     # print("Mean: {}      Std: {}".format(mean, sigma))
     data_normalized = data
-    data_normalized[data_normalized.nonzero()] = (data_normalized[data_normalized.nonzero()] - mean) / sigma
-    data_normalized = (data_normalized - np.min(data_normalized))/np.ptp(data_normalized)
+    # data_normalized[data_normalized.nonzero()] = (data_normalized[data_normalized.nonzero()] - mean) / sigma
+    if sum(abs(data_normalized)) > 0:
+        data_normalized[data_normalized.nonzero()] = (data_normalized[data_normalized.nonzero()] - mean) / sigma
+        data_normalized = (data_normalized - np.min(data_normalized)) / np.ptp(data_normalized)
 
     return data_normalized
 
