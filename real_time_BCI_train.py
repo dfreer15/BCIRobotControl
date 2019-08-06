@@ -3,7 +3,10 @@
 import pyriemann
 import numpy as np
 from mne.io import read_raw_edf
+from pyriemann.utils.distance import distance
+from pyriemann.utils.mean import mean_covariance
 import math
+import time
 import csv
 import pandas
 
@@ -36,9 +39,12 @@ def get_clf():
 
 def transform_fit(clf, opt, train_data, train_labels):
     np.set_printoptions(precision=3)
+    fgda = pyriemann.tangentspace.FGDA()
     if clf_method == "Riemann":
         cov_train = pyriemann.estimation.Covariances().fit_transform(np.transpose(train_data, axes=[0, 2, 1]))
-        clf.fit_transform(cov_train, train_labels)
+        # clf.fit_transform(cov_train, train_labels)    # if certainty is not needed
+        cov_train = fgda.fit_transform(cov_train, train_labels)
+        full_calc_mean_cov(cov_train, train_labels)
         return clf
     elif clf_method == "Braindecode":
         train_data = (train_data * 1e6).astype(np.float32)
@@ -58,12 +64,14 @@ def transform_fit(clf, opt, train_data, train_labels):
 
 def predict(clf, val_data, labels):
     if clf_method == "Riemann":
-        # print(val_data.shape)
+        fgda = pyriemann.tangentspace.FGDA()
+        cert = 1
         cov_val = pyriemann.estimation.Covariances().fit_transform(np.transpose(val_data, axes=[0, 2, 1]))
-        # print('Covariance Matrix Values: ')
-        # print(cov_val)
-        pred_val = clf.predict(cov_val)
-        return pred_val, 1
+        # pred_val = clf.predict(cov_val)
+        pred_val, cert = predict_Riemann(cov_val)
+        # if np.isnan(cert[0]):
+        #     print(val_data)
+        return pred_val, cert
     elif clf_method == "Braindecode":
         val_data = (val_data * 1e6).astype(np.float32)
         X = np.transpose(val_data, [0, 2, 1])
@@ -77,9 +85,46 @@ def predict(clf, val_data, labels):
         return pred_val, cert
 
 
+def full_calc_mean_cov(cov_train_i, label_train_i, num_classes=4):
+
+    global mean_cov_n
+    mean_cov_n = np.zeros((num_classes, cov_train_i.shape[1], cov_train_i.shape[2]))
+    mean_cov_i = mean_cov_n
+
+    for l in range(num_classes):
+        try:
+            mean_cov_n[l] = mean_covariance(cov_train_i[label_train_i == l], metric='riemann',
+                                            sample_weight=None)
+            # print(mean_cov_n[l])
+        except ValueError:
+            mean_cov_n[l] = mean_cov_i[l]
+
+    return mean_cov_n
+
+
+def predict_Riemann(covtest):
+    # print(covtest)
+    dist = predict_distances_own(covtest)
+    # print(dist)
+    cert = (dist.mean(axis=1) - dist.min(axis=1))*4.0
+    # if np.isnan(cert[0]):
+    #     print(covtest)
+
+    return dist.argmin(axis=1), cert
+
+
+def predict_distances_own(covtest):
+    covmeans = mean_cov_n
+    Nc = len(covmeans)
+    dist = [distance(covtest, covmeans[m], 'riemann') for m in range(Nc)]
+    dist = np.concatenate(dist, axis=1)
+
+    return dist
+
+
 def get_data():
 
-    global freq, dataset_dir
+    global freq, dataset_dir, subject_name
 
     windowed = False
 
@@ -107,10 +152,12 @@ def get_data():
         # data_dir = '/homes/df1215/Downloads/eeg_test_data/'
         # data_dir = '/data/EEG_Data/adaptive_eeg_test_data/'
         data_dir = 'D:/'
-        data = np.genfromtxt(data_dir + 'Daniel_0/df_FB_001_data.csv', delimiter=',')
-        labels = np.genfromtxt(data_dir + 'Daniel_0/df_FB_001_markers.csv', delimiter=',')
+        # data = np.genfromtxt(data_dir + 'Daniel_0/df_FB_001_data.csv', delimiter=',')
+        # labels = np.genfromtxt(data_dir + 'Daniel_0/df_FB_001_markers.csv', delimiter=',')
         # data = np.genfromtxt(data_dir + 'Fani_0/fd_FB_001_data.csv', delimiter=',')
         # labels = np.genfromtxt(data_dir + 'Fani_0/fd_FB_001_markers.csv', delimiter=',')
+        data = np.genfromtxt(subject_name + '_EEG_data.csv', delimiter=',')
+        labels = np.genfromtxt(subject_name + '_markers.csv', delimiter=',')
 
         data = data[1:len(data)]
         labels = labels[1:len(labels)]
@@ -125,16 +172,19 @@ def get_data():
 
 
 def get_test_data():
-    global data_test
+    global data_test, num_channels
+
+    dataset = "gtec"
+
     if dataset == "bci_comp":
         # data_test, label_test = eeg_io_pp.get_data_2a(dataset_dir + test_file, n_classes, remove_rest=False,
         #                                               training_data=False)
         raw = read_raw_edf(dataset_dir + test_file, preload=True, stim_channel='auto', verbose='WARNING')
         data_test = np.asarray(np.transpose(raw.get_data()[:num_channels]))
     elif dataset == "gtec":
-        file = "daniel_WET_3class"
         # data_test, label_test = eeg_io_pp.get_data_gtec(dataset_dir, file, n_classes)
         # data_dir = '/data/EEG_Data/adaptive_eeg_test_data/'
+        num_channels = 32
         data_dir = 'D:/'
         # data = np.genfromtxt(data_dir + 'signal/' + file + '_01.csv', delimiter=';')
         data = np.genfromtxt(data_dir + 'Daniel_0/df_FB_001_data.csv', delimiter=',')
@@ -201,6 +251,13 @@ def init_globals(expInfo):
     return
 
 
+def init_globals_2():
+    global subject_name
+
+    subject_name = 'unworn'
+
+
+
 def train_network(expInfo):
     init_globals(expInfo)
 
@@ -219,6 +276,10 @@ def train_network(expInfo):
         clf, opt = get_clf()
         # split into training/val set? should determine best model before continuing
         clf = transform_fit(clf, opt, data_train, label_train)
+
+    unique, counts = np.unique(label_val, return_counts=True)
+    # print("Labels: ", unique, counts)
+    # print(label_val)
 
     pred_val, cert = predict(clf, data_val, label_val)
     eval_network(label_val, pred_val)
@@ -272,6 +333,7 @@ def bci_buffer(iter_num, buffer_size):
     # print(current_data.shape)
     return current_data
 
+
 def bci_buffer_rt(current_data, buffer_size, iter_i):
     iter_n = iter_i * buffer_size
     is_new_data = True
@@ -280,6 +342,7 @@ def bci_buffer_rt(current_data, buffer_size, iter_i):
             i = buffer_size
             while i > 0:
                 if i == buffer_size:
+                    # print(new_data)
                     current_data[buffer_size - 1] = new_data
                 else:
                     current_data[buffer_size - i - 1] = current_data[buffer_size - i]
@@ -305,30 +368,62 @@ def iter_bci_buffer(current_data, iter_n):
 
 def read_bci_data(iter_n):
     # data = data_test[iter_n]
-    data = data_receiver.receive()
+    data, timestamps = data_receiver.receive()
     while data.shape[0] < 1:
-        data = data_receiver.receive()
+        data, timestamps = data_receiver.receive()
     for i in range(data.shape[0]):
         iter_n += 1
         final_data.append(data[i, 0:num_channels])
-        yield data[i, 0:num_channels], iter_n
+        data_ts.append(timestamps[i])
+        # print(data[i, 0:num_channels])
+        # yield data[i, 0:num_channels], iter_n
+        yield data[i], iter_n
 
 
 def read_bci_markers():
-    markers = markers_receiver.receive()
+    global init_ts_d, init_ts_m
+
+    markers, timestamps = markers_receiver.receive()
     # while markers.shape[0] < 1:
     #     markers = markers_receiver.receive()
     for i in range(markers.shape[0]):
         if len(final_markers) > 0:
             if int(markers[i]) != final_markers[len(final_markers) - 1]:
-                print(int(markers[i]))
-                #print(final_markers[len(final_markers) - 1])
+                # print(int(markers[i]))
                 final_markers.append(int(markers[i]))
+                markers_ts.append(timestamps[i])
         else:
+            # print(int(markers[i]))
             final_markers.append(int(markers[i]))
+            markers_ts.append(timestamps[i])
+
+            # On first marker stream pull, synchronize with the data stream
+            init_ts_m = timestamps[0]
+            data, timestamps = data_receiver.receive()
+            while data.shape[0] < 1:
+                data, timestamps = data_receiver.receive()
+            init_ts_d = timestamps[0]
 
 
-def get_bci_class(bci_iter, clf, num_channels=22):
+def sync_streams(init_ts):
+    global init_ts_m, init_ts_d
+
+    init_ts_m = init_ts
+
+    data, timestamps = data_receiver.receive()
+    while data.shape[0] < 1:
+        data, timestamps = data_receiver.receive()
+    init_ts_d = timestamps[0]
+
+
+def update_markers(markers_in, markers_ts_in):
+    global final_markers, markers_ts
+
+    final_markers = markers_in
+    markers_ts = markers_ts_in
+
+
+def get_bci_class(bci_iter, clf, num_channels=32):
     filter_rt = False
 
     buffer_size = int(freq*window_size)
@@ -339,7 +434,7 @@ def get_bci_class(bci_iter, clf, num_channels=22):
     buffer_data = iter_bci_buffer(buffer_data, bci_iter)
     # print(buffer_data)
     if filter_rt:
-        buffer_data = eeg_io_pp.butter_bandpass_filter(buffer_data, 7, 30, freq)
+        buffer_data = eeg_io_pp_2.butter_bandpass_filter(buffer_data, 7, 30, freq)
 
     x1 = eeg_io_pp_2.norm_dataset(buffer_data)
     x1 = x1.reshape(1, x1.shape[0], x1.shape[1])
@@ -349,7 +444,12 @@ def get_bci_class(bci_iter, clf, num_channels=22):
     except ValueError:
         a, cert = 0, 0
 
-    print(bci_iter, a)
+    if np.isnan(cert[0]):
+        cert = 0.2
+        time.sleep(0.5)
+
+
+    print(bci_iter, a, cert)
 
     # final_data[bci_iter] = x1
     # final_label.append(a)
@@ -357,29 +457,60 @@ def get_bci_class(bci_iter, clf, num_channels=22):
     return a, cert
 
 
+def get_bci_class_lsl():
+    print('entered this thing!')
+
+
 def init_receiver():
-    global data_receiver, markers_receiver, num_channels, final_data, final_markers
+    global data_receiver, num_channels, final_data, data_ts
     data_receiver = LSLa.lslReceiver('data', True, True)
     num_channels = 32
-    markers_receiver = LSLa.lslReceiver('markers', True, True)
-    final_data = []
-    final_markers = []
+    final_data, data_ts = [], []
     return
 
 
-def save_data():
+def init_marker_receiver():
+    global markers_receiver, final_markers, markers_ts
+    markers_receiver = LSLa.lslReceiver('markers', True, True)
+    final_markers, markers_ts = [], []
+    return
+
+
+def sync_data():
+    global init_ts_d, init_ts_m
+
+    data, timestamp_d = data_receiver.receive()
+    markers, timestamp_m = markers_receiver.receive()
+
+    init_ts_d = timestamp_d[0]
+    init_ts_m = timestamp_m[0]
+
+    return
+
+
+def save_data(feedback=False, vrep=False):
+    global final_data_array, data_ts, final_markers_array, markers_ts, init_ts_d, init_ts_m, subject_name
+
+    # subject_name = "unworn"
+    if vrep:
+        subject_name = subject_name + "_vrep"
+    if feedback:
+        subject_name = subject_name + "_fb"
+
     final_data_array = np.asarray(final_data)
-    print(final_data_array.shape)
-    np.savetxt("final_data.csv", final_data_array, delimiter=",")
+    data_ts_array = np.asarray(data_ts) - init_ts_d
+    data_ts_array = data_ts_array.reshape(data_ts_array.shape[0], 1)
+    final_data_array_ts = np.concatenate((data_ts_array, final_data_array), axis=1)
+    np.savetxt(subject_name + "_EEG_data.csv", final_data_array_ts, delimiter=",")
 
     final_markers_array = np.asarray(final_markers)
-    print(final_markers_array)
-    np.savetxt("final_markers.csv", final_markers_array, delimiter=",")
+    markers_ts_array = np.asarray(markers_ts) - init_ts_m
+    final_markers_array = final_markers_array.reshape(markers_ts_array.shape[0], 1)
+    markers_ts_array = markers_ts_array.reshape(markers_ts_array.shape[0], 1)
+    final_markers_array_ts = np.concatenate((markers_ts_array, final_markers_array), axis=1)
+    print(final_markers_array_ts)
+    np.savetxt(subject_name + "_markers.csv", final_markers_array_ts, delimiter=",")
 
-    print(final_data_array.shape)
-
-    # final_data_array = pandas.array(final_data)
-    # final_data_array.to_csv('final_data.csv')
     return
 
 
