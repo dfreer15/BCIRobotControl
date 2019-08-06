@@ -17,7 +17,6 @@ from torch import optim
 import matplotlib.pyplot as plt
 import LSLscripts.LSLacquire as LSLa
 
-import eeg_io_pp
 import eeg_io_pp_2
 import Deep_Func
 
@@ -144,7 +143,7 @@ def get_data():
 
         for i in range(len(data_train)):
             # print(data_train[i, 16])
-            data_train[i] = eeg_io_pp.butter_bandpass_filter(data_train[i], 7, 30, freq)
+            data_train[i] = eeg_io_pp_2.butter_bandpass_filter(data_train[i], 7, 30, freq)
             data_train_ii = data_train[i]
 
         data_train = eeg_io_pp_2.norm_dataset(data_train)
@@ -177,18 +176,12 @@ def get_test_data():
     dataset = "gtec"
 
     if dataset == "bci_comp":
-        # data_test, label_test = eeg_io_pp.get_data_2a(dataset_dir + test_file, n_classes, remove_rest=False,
-        #                                               training_data=False)
         raw = read_raw_edf(dataset_dir + test_file, preload=True, stim_channel='auto', verbose='WARNING')
         data_test = np.asarray(np.transpose(raw.get_data()[:num_channels]))
     elif dataset == "gtec":
-        # data_test, label_test = eeg_io_pp.get_data_gtec(dataset_dir, file, n_classes)
-        # data_dir = '/data/EEG_Data/adaptive_eeg_test_data/'
         num_channels = 32
         data_dir = 'D:/'
-        # data = np.genfromtxt(data_dir + 'signal/' + file + '_01.csv', delimiter=';')
         data = np.genfromtxt(data_dir + 'Daniel_0/df_FB_001_data.csv', delimiter=',')
-        # data = np.genfromtxt(data_dir + 'Fani_0/fd_FB_001_data.csv', delimiter=',')
         raw_data = np.zeros((len(data), num_channels))
         for i in range(1, len(data)):
             if not math.isnan(np.amax(data[i][1:num_channels + 1])):
@@ -528,10 +521,8 @@ if __name__ == '__main__':
     pred_val, cert = predict(clf, data_val, label_val)
     eval_network(label_val, pred_val)
 
-    # data_test, label_test = eeg_io_pp.get_data_2a(dataset_dir + test_file, n_classes, remove_rest=False, training_data=False)
-
     buffer_size = int(freq * window_size)
-    # num_channels = 22
+
     buffer_data = np.zeros((buffer_size, num_channels))
     iter_num = 0
 
