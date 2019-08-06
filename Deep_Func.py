@@ -21,9 +21,9 @@ from braindecode.torch_ext.util import np_to_var, var_to_np
 import torch.nn.functional as F
 from numpy.random import RandomState
 import torch as th
-from braindecode.experiments.monitors import compute_preds_per_trial_for_set
+# from braindecode.experiments.monitors import compute_preds_per_trial_for_set
 
-import eeg_io_pp
+import eeg_io_pp_2
 
 rng = RandomState((2017, 6, 30))
 cuda = True
@@ -419,14 +419,13 @@ if __name__ == '__main__':
             dataset_dir = "/data2/bci_competition/BCICIV_2a_gdf/"
             file = 'A' + format(subject_num, '02d') + 'T.gdf'
             print(file)
-            sig, sig_labels = eeg_io_pp.get_data_2a(dataset_dir + file, n_classes)
+            sig, sig_labels = eeg_io_pp_2.get_data_2a(dataset_dir + file, n_classes)
         elif dataset == 'physionet':
             dataset_dir = "/data2/eegmmidb/"
-            sig, sig_labels = eeg_io_pp.get_data_PN(dataset_dir, subject_num, n_classes)
-            # sig = eeg_io_pp.dataset_1Dto1D_16_PN(sig)
+            sig, sig_labels = eeg_io_pp_2.get_data_PN(dataset_dir, subject_num, n_classes)
 
-        data, label = eeg_io_pp.segment_signal_without_transition(sig, sig_labels, window_size)
-        data = eeg_io_pp.norm_dataset(data)
+        data, label = eeg_io_pp_2.segment_signal_without_transition(sig, sig_labels, window_size)
+        data = eeg_io_pp_2.norm_dataset(data)
         data = data.reshape([label.shape[0], window_size, num_channels])
 
         # # # # # # # # CONVERT TO BDC FORMAT # # # # # # # # #
