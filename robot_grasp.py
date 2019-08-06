@@ -4,6 +4,7 @@ import numpy as np
 import math
 import csv
 import Grasp_Learn_Func
+import atexit
 
 print('Program started')
 global EE_turn, joint_start
@@ -13,7 +14,7 @@ use_BCI = True
 learning_rl = False
 set_pos = True
 num_obj = 9
-bci_update = 0.25
+bci_update = 0.01
 bci_iter = 0
 mode = 'train'
 # mode = 'test'
@@ -28,9 +29,9 @@ if use_BCI:
     else:
         import real_time_BCI
 
-    # clf_method = "Riemann"
+    clf_method = "Riemann"
     # clf_method = "Braindecode"
-    clf_method = "LSTM"
+    # clf_method = "LSTM"
 
     n_classes, epochs = 5, 20
 
@@ -43,7 +44,7 @@ if use_BCI:
         num_channels = 32
 
 if robot_type == 1:
-    [connected, clientID, joint_handles, cam_Handle] = Grasp_Learn_Func.sim_setup()
+    [connected, clientID, joint_handles, cam_Handle] = Grasp_Learn_Func.sim_setup(gripper_type)
     if gripper_type == 2:
         joint_start = [0, -100 * math.pi / 180, 30 * math.pi / 180, 85 * math.pi / 180, 30 * math.pi / 180, 0]
         pix_prop_thresh1, pix_prop_thresh2, jps_thresh, vel_1, vel_2, center_res1, center_res2 = 0.10, 0.55, -0.7, 0.02, 0.02, 5, 4
@@ -84,15 +85,21 @@ if connected:
     expInfo = {'participant': 'daniel', 'session': '001'}
 
     if use_BCI:
+        real_time_BCI.init_globals_2()
         clf = real_time_BCI.train_network(expInfo)
         all_bci_data = real_time_BCI.get_test_data()
-        # real_time_BCI.init_receiver()
+        real_time_BCI.init_receiver()
+        Grasp_Learn_Func.init_marker_receiver_vrep()
+        atexit.register(Grasp_Learn_Func.save_data, feedback=True, vrep=True)
+        atexit.register(Grasp_Learn_Func.save_success_data, subject_name="unworn")
+        # real_time_BCI.init_marker_receiver()
 
     with open('vrep_data_record.csv', 'wb') as csvfile:
         spamwriter = csv.writer(csvfile, delimiter=' ', quotechar='|', quoting=csv.QUOTE_MINIMAL)
         # spamwriter.writerow(['ObjectType', 'Object_x', 'Object_y', 'Max_Height', 'Time_of_Completion', 'Success?'])
 
-        total_start = time.clock()
+        # total_start = time.clock()
+        total_start = time.process_time()
         while resetNum < 10:
             print('Iteration Number: ', resetNum)
             trial_incomplete = True
@@ -130,26 +137,36 @@ if connected:
             robot_moving = True
             print('NRA: ', robot_action)
 
-            tic = time.clock()
+            # tic = time.clock()
+            bci_class, cert = real_time_BCI.get_bci_class(bci_iter, clf)
+            tic = time.process_time()
             tic_start_trial = tic
             tic_bci = tic
             while trial_incomplete:
 
-                toc = time.clock()
+                # toc = time.clock()
+                toc = time.process_time()
                 if toc - tic_start_trial > trial_timeout:
                     # print('Timeout!')
                     robot_action = 3
-                    tic = time.clock()
+                    # tic = time.clock()
+                    tic = time.process_time()
 
                 errorCode2, resolution, image = vrep.simxGetVisionSensorImage(clientID, cam_Handle, 0,
                                                                               vrep.simx_opmode_buffer)
                 errorCode2, resolution, image_d = vrep.simxGetVisionSensorDepthBuffer(clientID, cam_Handle,
                                                                                       vrep.simx_opmode_buffer)
                 if robot_action > 1 or bci_iter > next_bci_iter - 1:
-                    bci_class = 0
+                    bci_class, cert = 0, 0.001
                 elif use_BCI and toc - tic_bci > bci_update:
                     bci_class, cert = real_time_BCI.get_bci_class(bci_iter, clf)
-                    tic_bci = time.clock()
+                    robot_action = Grasp_Learn_Func.read_bci_markers_vrep(robot_action)
+                    if mode == 'train':
+                        Grasp_Learn_Func.read_success_data_train()
+                    elif mode == 'test':
+                        Grasp_Learn_Func.read_success_data_test()
+                    # tic_bci = time.clock()
+                    tic_bci = time.process_time()
                     bci_iter = bci_iter + 1
 
                 if bci_class == 4:
@@ -173,7 +190,8 @@ if connected:
                             [grasp_type, obj_x, obj_y, obj_pix_prop] = Grasp_Learn_Func.image_process(im, resolution)
 
                         if robot_action == 1:
-                            new_robot_action = Grasp_Learn_Func.approach1(pix_prop_thresh1, vel_1, center_res1, cent_weight1, jps_thresh)
+                            # new_robot_action = Grasp_Learn_Func.approach1(pix_prop_thresh1, vel_1, center_res1, cent_weight1, jps_thresh)
+                            new_robot_action = Grasp_Learn_Func.approach1_bci(pix_prop_thresh1, vel_1, center_res1, cent_weight1, jps_thresh, bci_class, cert)
                         elif robot_action == 2:
                             new_robot_action = Grasp_Learn_Func.approach2(pix_prop_thresh2, vel_2, center_res2, cent_weight2)
                         elif robot_action == 3:
@@ -196,7 +214,8 @@ if connected:
                             vrep.simxSetIntegerSignal(clientID, 'sig', 0, vrep.simx_opmode_oneshot)
                             time.sleep(5)
                             trial_incomplete = False
-                            toc = time.clock()
+                            # toc = time.clock()
+                            toc = time.process_time()
                             time_to_complete = toc - tic_start_trial
                             resetNum = resetNum + 1
                             # spamwriter.writerow([obj_type, OP_x, OP_y, max_height, time_to_complete, success])
