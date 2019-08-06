@@ -5,20 +5,20 @@ import numpy as np
 import math
 import csv
 
-import tty, sys, termios
+# import tty, sys, termios
 
 # import real_time_BCI
 use_BCI = True
 if use_BCI:
     import real_time_BCI_train as real_time_BCI
-import eeg_io_pp
+import eeg_io_pp_2
 
 import cv2
 import array
 from PIL import Image as I
 
 
-def sim_setup():
+def sim_setup(gripper_type):
     vrep.simxFinish(-1)  # just in case, close all open connections
 
     global clientID
@@ -51,6 +51,8 @@ def sim_setup():
         while len(resolution) < 1:
             errorCode2, resolution, image = vrep.simxGetVisionSensorImage(clientID, cam_Handle, 0,
                                                                           vrep.simx_opmode_streaming)
+
+        gripper_handles, FS_handles = setup_gripper(gripper_type)
 
         for i in range(0, 6):
             vrep.simxSetObjectIntParameter(clientID, joint_handles[i], vrep.sim_jointintparam_ctrl_enabled, 1,
@@ -230,9 +232,17 @@ def KR10_sim_setup(gripper_type):
         return [False, 0, 0, 0, 0]
 
 
-
 def setup_gripper(gripper_type):
-    if gripper_type == 2:           # Schunk 5-fingered hand
+    global full_gripper_handle, full_ghost_gripper_handle, gripper_distance
+    gripper_distance = []
+    if gripper_type == 1:
+        # Jaco Hand
+        check, full_gripper_handle = vrep.simxGetObjectHandle(clientID, 'JacoHand', vrep.simx_opmode_blocking)
+        check, full_ghost_gripper_handle = vrep.simxGetObjectHandle(clientID, 'JacoHand_g', vrep.simx_opmode_blocking)
+        gripper_handles = [0]
+        FS_handles = [0]
+    elif gripper_type == 2:
+        # Schunk 5-fingered hand
         index_handles = [0, 0, 0]
         middle_handles = [0, 0, 0]
         thumb_handles = [0, 0, 0]
@@ -251,7 +261,7 @@ def setup_gripper(gripper_type):
         FS_handles = [0]
 
     elif gripper_type == 3:
-        # Barrett Hand Handles
+        # Barrett Hand
         check, GripJointHandleA0 = vrep.simxGetObjectHandle(clientID, 'BarrettHand_jointA_0', vrep.simx_opmode_blocking)
         check, GripJointHandleA2 = vrep.simxGetObjectHandle(clientID, 'BarrettHand_jointA_2', vrep.simx_opmode_blocking)
         check, GripJointHandleB0 = vrep.simxGetObjectHandle(clientID, 'BarrettHand_jointB_0', vrep.simx_opmode_blocking)
@@ -277,6 +287,7 @@ def setup_gripper(gripper_type):
         returnCode, state, forceVector2, torqueVector2 = vrep.simxReadForceSensor(clientID, FS_handles[2], vrep.simx_opmode_streaming)
 
     elif gripper_type == 4:
+        # Salford Hand
         i = 0
         base_handles = [0, 0, 0]
         flex_handles = [0, 0, 0]
@@ -650,25 +661,65 @@ def get_bci_class_perfect(bci_iter):
     return bci_class_exp[bci_iter]
 
 
-def get_bci_class(bci_iter, clf, bci_freq=250, window_size=0.5, num_channels=22):
-    buffer_size = int(bci_freq*window_size)
-    label = [0]
-    if bci_iter == 0:
-        global buffer_data
-        buffer_data = np.zeros((buffer_size, num_channels))
-        print('num Channels: ', num_channels)
-    buffer_data = real_time_BCI.iter_bci_buffer(buffer_data, bci_iter)
-    x1 = eeg_io_pp.norm_dataset(buffer_data)
-    x1 = x1.reshape(1, x1.shape[0], x1.shape[1])
+def init_marker_receiver_vrep():
+    global final_markers, markers_ts
+    # markers_receiver = LSLa.lslReceiver('markers', True, True)
+    returncode, signal_val = vrep.simxGetIntegerSignal(clientID, 'BCI_class', vrep.simx_opmode_streaming)
+    final_markers, markers_ts = [], []
+    return
 
-    try:
-        a, cert = real_time_BCI.predict(clf, x1, label)
-    except ValueError:
-        a, cert = 0, 0
 
-    print(bci_iter, a, cert)
+def read_bci_markers_vrep(robot_action):
+    returncode, signal_val = vrep.simxGetIntegerSignal(clientID, 'BCI_class', vrep.simx_opmode_buffer)
+    if signal_val > 0:
+        vrep.simxClearIntegerSignal(clientID, 'BCI_class', vrep.simx_opmode_oneshot)
+        if signal_val == 100:
+            exit()
+        elif signal_val == 10:
+            print('Returning to starting position')
+            return 6
+        signal_val = signal_val - 1
+        if len(final_markers) > 0:
+            final_markers.append(signal_val)
+            markers_ts.append(time.process_time())
+        else:
+            init_ts_m = time.process_time()
+            final_markers.append(signal_val)
+            markers_ts.append(init_ts_m)
 
-    return a, cert
+            real_time_BCI.sync_streams(init_ts_m)
+
+        print(signal_val)
+
+    return robot_action
+    # if signal_val != nil:
+
+
+def read_success_data_train():
+    # print("reading training success data")
+    # Get position of real robot end-effector
+    checkO, gripper_pos = vrep.simxGetObjectPosition(clientID, full_gripper_handle, -1, vrep.simx_opmode_oneshot)
+    # Get position of ghost end-effector
+    checkO, gripper_pos_g = vrep.simxGetObjectPosition(clientID, full_ghost_gripper_handle, -1, vrep.simx_opmode_oneshot)
+    # Find distance between them
+    dist = math.sqrt((gripper_pos[0] - gripper_pos_g[0])**2 + (gripper_pos[1] - gripper_pos_g[1])**2 + (gripper_pos[2] - gripper_pos_g[2])**2)
+    # Add distance to array
+    gripper_distance.append(dist)
+
+
+def read_success_data_test(grasped_object_handle):
+    print("reading testing success data")
+    # After grasp, add information about which object has been grasped, which was supposed to be, if they match,
+    # how long the user took to complete the task, and so on
+
+
+def save_data(feedback=True, vrep=True):
+    real_time_BCI.update_markers(final_markers, markers_ts)
+    real_time_BCI.save_data(feedback=feedback, vrep=vrep)
+
+
+def save_success_data(subject_name="unworn"):
+    np.savetxt(subject_name + "_dist_data.csv", gripper_distance, delimiter=",")
 
 
 def depth_process(im_d, resolution, obj_x, obj_y):
@@ -706,7 +757,8 @@ def center_object(weight, im_x, im_y, resolution):
 
 def full_center(im_x, im_y, center_res, resolution):
     print('Full Center!')
-    tic_fc = time.clock()
+    # tic_fc = time.clock()
+    tic_fc = time.process_time()
     while not (((resolution[1]) / 2 - center_res < im_x < (resolution[0]) / 2 + center_res) and
                ((resolution[1]) / 2 - center_res < im_y < (resolution[1]) / 2 + center_res)):
 
@@ -722,7 +774,8 @@ def full_center(im_x, im_y, center_res, resolution):
             if len(obj_list) > 0:
                 im_x, im_y = obj_list[0][1], obj_list[0][2]
 
-        toc_fc = time.clock()
+        # toc_fc = time.clock()
+        toc_fc = time.process_time()
         if toc_fc - tic_fc > 10:
             return 6
 
@@ -741,10 +794,12 @@ def search_object():
                                    vrep.simx_opmode_oneshot)
     vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], 0.5, vrep.simx_opmode_streaming)
 
-    tic_so = time.clock()
+    # tic_so = time.clock()
+    tic_so = time.process_time()
     objectFound = False
     while objectFound is False:
-        toc_so = time.clock()
+        # toc_so = time.clock()
+        toc_so = time.process_time()
 
         errorCode2, resolution, image = vrep.simxGetVisionSensorImage(clientID, cam_Handle, 0, vrep.simx_opmode_buffer)
         im = np.array(image, dtype=np.uint8)
@@ -767,11 +822,13 @@ def search_object_2():
     print('Searching...')
     vrep.simxSetStringSignal(clientID, 'IKCommands', 'LookPos', vrep.simx_opmode_oneshot)  # "Looking" position
     center_res = 10
-    tic_so = time.clock()
+    # tic_so = time.clock()
+    tic_so = time.process_time()
     objectFound = False
 
     while objectFound is False:
-        toc_so = time.clock()
+        # toc_so = time.clock()
+        toc_so = time.process_time()
 
         errorCode2, resolution, image = vrep.simxGetVisionSensorImage(clientID, cam_Handle, 0, vrep.simx_opmode_buffer)
         im = np.array(image, dtype=np.uint8)
@@ -806,62 +863,97 @@ def search_object_2():
             return 6
 
 
-def search_object_bci(bci_iter, this_bci_iter, next_bci_iter, clf, num_channels=22):
+def search_object_bci(bci_iter, this_bci_iter, next_bci_iter, clf, num_channels=22, mode='train'):
     time_limit = False
 
     vrep.simxSetStringSignal(clientID, 'IKCommands', 'LookPos', vrep.simx_opmode_oneshot)  # "Looking" position
     vrep.simxSetObjectIntParameter(clientID, joint_handles[0], vrep.sim_jointintparam_velocity_lock, 0,
                                    vrep.simx_opmode_oneshot)
     center_res = 10
-    bci_update = 0.25
+    bci_update = 0.01
 
-    tic_so = time.clock()
+    # tic_so = time.clock()
+    tic_so = time.process_time()
     tic_bci = tic_so
     objectFound = False
+    five_class_control = False
+    four_class_control = True
     print('num_channels: ', num_channels)
+    next_state = read_bci_markers_vrep(0)
     bci_class, cert = real_time_BCI.get_bci_class(bci_iter, clf, num_channels=num_channels)
+    # get_bci_class_lsl
     bci_iter = bci_iter + 1
 
-    if time_limit:
+    '''if time_limit:
         # while bci_time + 3 < tic_bci:
         while bci_iter < this_bci_iter:
+            next_state = read_bci_markers_vrep(0)
             bci_class, cert = real_time_BCI.get_bci_class(bci_iter, clf)
+            if np.isnan(cert):
+                cert = 0.2
             bci_iter = bci_iter + 1
-            tic_bci = time.clock()
+            # tic_bci = time.clock()
+            tic_bci = time.process_time()
+    '''
+    vrep.simxSetStringSignal(clientID, 'robot_state', 'searching', vrep.simx_opmode_blocking)
 
     while objectFound is False:
-        toc_so = time.clock()
+        # toc_so = time.clock()
+        toc_so = time.process_time()
         # print('time_diff: ', toc_so - tic_bci)
+
+        if mode == 'train':
+            read_success_data_train()
 
         # print bci_iter, next_bci_iter
         if bci_iter > next_bci_iter - 1:
             return bci_iter, 6
 
         if toc_so - tic_bci > bci_update:
+            next_state = read_bci_markers_vrep(0)
             bci_class, cert = real_time_BCI.get_bci_class(bci_iter, clf)
-            tic_bci = time.clock()
+            # tic_bci = time.clock()
+            tic_bci = time.process_time()
             bci_iter = bci_iter + 1
+            if np.isnan(cert):
+                cert = 0.2
             # print bci_time, tic_bci
 
-        if bci_class == 1:
-            vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], -0.065, vrep.simx_opmode_oneshot)
-        elif bci_class == 2:
-            vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], 0.065, vrep.simx_opmode_oneshot)
-        elif bci_class == 0:
-            vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], 0, vrep.simx_opmode_oneshot)
-        elif bci_class == 4:
-            vrep.simxSetObjectIntParameter(clientID, joint_handles[0], vrep.sim_jointintparam_velocity_lock, 1,
-                                           vrep.simx_opmode_oneshot)
-            vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], 0, vrep.simx_opmode_oneshot)
-        elif bci_class == 3:
-            vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], 0, vrep.simx_opmode_oneshot)
-            objectFound = True
+        if five_class_control:
+            if bci_class == 1:
+                vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], 0.065, vrep.simx_opmode_oneshot)
+            elif bci_class == 2:
+                vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], -0.065, vrep.simx_opmode_oneshot)
+            elif bci_class == 0:
+                vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], 0, vrep.simx_opmode_oneshot)
+            elif bci_class == 4:
+                vrep.simxSetObjectIntParameter(clientID, joint_handles[0], vrep.sim_jointintparam_velocity_lock, 1,
+                                               vrep.simx_opmode_oneshot)
+                vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], 0, vrep.simx_opmode_oneshot)
+            elif bci_class == 3:
+                vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], 0, vrep.simx_opmode_oneshot)
+                objectFound = True
+        elif four_class_control:
+            if bci_class == 0:          # Turns left
+                vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], 0.065 * cert, vrep.simx_opmode_oneshot)
+            elif bci_class == 1:        # Turns right
+                vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], -0.065 * cert, vrep.simx_opmode_oneshot)
+            elif bci_class == 2:        # Starts approach
+                vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], 0, vrep.simx_opmode_oneshot)
+                objectFound = True
+            elif bci_class == 3:        # Stops movement
+                vrep.simxSetObjectIntParameter(clientID, joint_handles[0], vrep.sim_jointintparam_velocity_lock, 1,
+                                               vrep.simx_opmode_oneshot)
+                vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], 0, vrep.simx_opmode_oneshot)
 
         errorCode2, resolution, image = vrep.simxGetVisionSensorImage(clientID, cam_Handle, 0, vrep.simx_opmode_buffer)
         im = np.array(image, dtype=np.uint8)
         if len(resolution) > 0:
             im.resize([resolution[0], resolution[1], 3])
             image_process_2(im, resolution, bci_class)
+
+        if next_state == 6:
+            return bci_iter, 6
 
     return bci_iter, 1
 
@@ -915,6 +1007,8 @@ def start_pos(joint_start):
                                            vrep.simx_opmode_oneshot)
             vrep.simxSetJointTargetVelocity(clientID, joint_handles[i], 0, vrep.simx_opmode_oneshot)
 
+            read_success_data_test(objHandle)
+
             if max_height > 0.22:
                 print('success!')
                 success = 1
@@ -937,14 +1031,16 @@ def start_pos_grip(grip_joint_start):
         vrep.simxSetObjectIntParameter(clientID, gripper_handles[i], vrep.sim_jointintparam_velocity_lock, 1,
                                        vrep.simx_opmode_oneshot)
 
-    tic_sp = time.clock()
+    # tic_sp = time.clock()
+    tic_sp = time.process_time()
     while sum(grip_joint_success) < len(grip_joint_start) - 2:
 
         try:
             checkO, obj_pos = vrep.simxGetObjectPosition(clientID, objHandle, -1, vrep.simx_opmode_blocking)
         except NameError:
             obj_pos = [0, 0, 0]
-        toc_sp = time.clock()
+        # toc_sp = time.clock()
+        toc_sp = time.process_time()
         if obj_pos[2] > max_height:
             max_height = obj_pos[2]
 
@@ -973,10 +1069,9 @@ def start_pos_grip(grip_joint_start):
     return [success, max_height]
 
 
-
-
 def approach1(prop_thresh, vel_1, center_res, cent_weight, jps_thresh):
     # print('Approach1')
+
     vrep.simxSetJointTargetVelocity(clientID, joint_handles[1], vel_1, vrep.simx_opmode_oneshot)
     vrep.simxSetObjectIntParameter(clientID, joint_handles[1], vrep.sim_jointintparam_ctrl_enabled, 0,
                                    vrep.simx_opmode_oneshot)
@@ -1009,8 +1104,70 @@ def approach1(prop_thresh, vel_1, center_res, cent_weight, jps_thresh):
         return 1
 
 
+def approach1_bci(prop_thresh, vel_1, center_res, cent_weight, jps_thresh, bci_class, cert):
+    # print('Approach1')
+    # global bci_class, cert
+    four_class_control = True
+
+    # bci_class, cert = real_time_BCI.get_bci_class(bci_iter, clf)
+
+    if cert > 0.5:
+        if four_class_control:
+            if bci_class == 0:  # Turns left
+                vrep.simxSetJointTargetVelocity(clientID, joint_handles[1], 0, vrep.simx_opmode_oneshot)
+                vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], 0.065 * cert, vrep.simx_opmode_oneshot)
+            elif bci_class == 1:  # Turns right
+                vrep.simxSetJointTargetVelocity(clientID, joint_handles[1], 0, vrep.simx_opmode_oneshot)
+                vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], -0.065 * cert, vrep.simx_opmode_oneshot)
+            elif bci_class == 3:  # Moves backward
+                vrep.simxSetJointTargetVelocity(clientID, joint_handles[1], -vel_1 * cert, vrep.simx_opmode_oneshot)
+            else:
+                vrep.simxSetJointTargetVelocity(clientID, joint_handles[1], cert * vel_1, vrep.simx_opmode_oneshot)
+                vrep.simxSetObjectIntParameter(clientID, joint_handles[1], vrep.sim_jointintparam_ctrl_enabled, 0,
+                                               vrep.simx_opmode_oneshot)
+                vrep.simxSetObjectIntParameter(clientID, joint_handles[1], vrep.sim_jointintparam_velocity_lock, 1,
+                                               vrep.simx_opmode_oneshot)
+
+                if obj_x > resolution[0]/2 + center_res or obj_x < resolution[0]/2 - center_res or \
+                   obj_y > resolution[1]/2 + center_res or obj_y < resolution[1]/2 - center_res:
+
+                    center_object(cent_weight, obj_x, obj_y, resolution)
+    else:
+        vrep.simxSetJointTargetVelocity(clientID, joint_handles[1], cert * vel_1, vrep.simx_opmode_oneshot)
+        vrep.simxSetObjectIntParameter(clientID, joint_handles[1], vrep.sim_jointintparam_ctrl_enabled, 0,
+                                       vrep.simx_opmode_oneshot)
+        vrep.simxSetObjectIntParameter(clientID, joint_handles[1], vrep.sim_jointintparam_velocity_lock, 1,
+                                       vrep.simx_opmode_oneshot)
+
+        if obj_x > resolution[0] / 2 + center_res or obj_x < resolution[0] / 2 - center_res or \
+                obj_y > resolution[1] / 2 + center_res or obj_y < resolution[1] / 2 - center_res:
+            center_object(cent_weight, obj_x, obj_y, resolution)
+
+    returncode, joint2_pos = vrep.simxGetJointPosition(clientID, joint_handles[1], vrep.simx_opmode_buffer)
+    returncode, joint5_pos = vrep.simxGetJointPosition(clientID, joint_handles[4], vrep.simx_opmode_buffer)
+
+    jointpossum = joint2_pos + joint5_pos
+    # print(joint2_pos, joint5_pos)
+    # print(jointpossum)
+
+    if obj_pix_prop > prop_thresh or jointpossum > jps_thresh:
+        print('Finished Approach1!')
+        print('Object Pixel Proportion: ', obj_pix_prop)
+        print('Joint Position Sum: ', jointpossum)
+        vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], 0, vrep.simx_opmode_oneshot)
+        vrep.simxSetJointTargetVelocity(clientID, joint_handles[1], 0, vrep.simx_opmode_oneshot)
+        vrep.simxSetJointTargetVelocity(clientID, joint_handles[4], 0, vrep.simx_opmode_oneshot)
+        return 2
+    # elif obj_pix_prop < 0.001:
+    #     return 6
+    else:
+        return 1
+
+
 def approach2(prop_thresh, vel_2, center_res, cent_weight):
     # print("Approach2!")
+    vrep.simxSetStringSignal(clientID, 'robot_state', 'grasping', vrep.simx_opmode_oneshot)
+
     vrep.simxSetJointTargetVelocity(clientID, joint_handles[3], vel_2, vrep.simx_opmode_oneshot)
     # vrep.simxSetJointTargetVelocity(clientID, joint_handles[4], -vel_2/2, vrep.simx_opmode_oneshot)
     vrep.simxSetObjectIntParameter(clientID, joint_handles[3], vrep.sim_jointintparam_ctrl_enabled, 0,
@@ -1035,6 +1192,7 @@ def approach2(prop_thresh, vel_2, center_res, cent_weight):
         vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], 0, vrep.simx_opmode_oneshot)
         vrep.simxSetJointTargetVelocity(clientID, joint_handles[3], 0, vrep.simx_opmode_oneshot)
         vrep.simxSetJointTargetVelocity(clientID, joint_handles[4], 0, vrep.simx_opmode_oneshot)
+
         return 3
     elif obj_pix_prop < 0.001:
         return 6
@@ -1059,7 +1217,7 @@ def move_back(vel_mb):
                                    vrep.simx_opmode_oneshot)
     print('Move back')
     # move_back_count += 1
-    tic = time.clock()
+    # tic = time.clock()
     vrep.simxSetJointTargetVelocity(clientID, joint_handles[3], -vel_mb * 2, vrep.simx_opmode_oneshot)
     time.sleep(3)
     vrep.simxSetJointTargetVelocity(clientID, joint_handles[3], 0, vrep.simx_opmode_oneshot)
