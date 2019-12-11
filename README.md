@@ -5,4 +5,4 @@ The framework uses simple computer vision techniques along with EEG processing t
 
 The simulation environment we have used is V-REP, so for instructions on how to install this and use the remote API, check out their website: http://www.coppeliarobotics.com/
 
-We have also used LabStreamingLayer to facilitate the movement of EEG data between different programs. For more information about this, their open source code is also available: https://github.com/sccn/labstreaminglayer 
+We have also used LabStreamingLayer to facilitate the synchronisation of EEG data between different programs. For more information about this, their open source code is also available: https://github.com/sccn/labstreaminglayer 
