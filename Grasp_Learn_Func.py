@@ -4,18 +4,17 @@ import random
 import numpy as np
 import math
 import csv
+import os
+import cv2
+from sklearn.utils import shuffle
+from sklearn.metrics import confusion_matrix
 
-# import tty, sys, termios
+import tensorflow as tf
 
-# import real_time_BCI
 use_BCI = True
 if use_BCI:
     import real_time_BCI_train as real_time_BCI
 import eeg_io_pp_2
-
-import cv2
-import array
-from PIL import Image as I
 
 
 def sim_setup(gripper_type):
@@ -24,7 +23,9 @@ def sim_setup(gripper_type):
     global clientID
     global joint_handles, cam_Handle, aug_Handle
     global resolution, EE_turn
-    # global obj_x, obj_y, obj_pix_prop
+    global success_data
+
+    success_data = []
 
     clientID = vrep.simxStart("127.0.0.1", 19999, True, True, 2000, 5)
     if clientID != -1:
@@ -70,6 +71,9 @@ def kuka_sim_setup(gripper_type):
     global clientID
     global joint_handles, cam_Handle, aug_Handle, FS_handles
     global resolution, EE_turn
+    global success_data
+
+    success_data = []
 
     EE_turn = 0
 
@@ -128,6 +132,9 @@ def ABB_sim_setup(gripper_type):
     global clientID
     global joint_handles, cam_Handle, aug_Handle, FS_handles
     global resolution, EE_turn
+    global success_data
+
+    success_data = []
 
     EE_turn = 0
 
@@ -185,6 +192,9 @@ def KR10_sim_setup(gripper_type):
     global clientID
     global joint_handles, gripper_handles, cam_Handle, aug_Handle, FS_handles
     global resolution, EE_turn
+    global success_data
+
+    success_data = []
 
     EE_turn = 0
 
@@ -428,8 +438,9 @@ def place_all_3_obj_setpos():
 
 
 def place_all_9_obj_setpos():
-    global objHandles
+    global objHandles, obj_names
     objHandles = np.zeros(9)
+    obj_names = []
     theta = 40*math.pi/180
     distance = 0.5
 
@@ -446,53 +457,93 @@ def place_all_9_obj_setpos():
     OP_x_cube, OP_y_cube = -0.0, distance
     OP_x_cyl, OP_y_cyl = distance * math.sin(theta), distance * math.cos(theta)
     OP_x_sphere, OP_y_sphere = -distance * math.sin(theta), distance * math.cos(theta)
+    # OP_x_sphere, OP_y_sphere = distance * math.sin(-4 * theta), distance * math.cos(-4 * theta)
     OP_x_cube_y, OP_y_cube_y = distance * math.sin(2 * theta), distance * math.cos(2 * theta)
     OP_x_cyl_r, OP_y_cyl_r = distance * math.sin(3 * theta), distance * math.cos(3 * theta)
     OP_x_sphere_b, OP_y_sphere_b = distance * math.sin(4 * theta), distance * math.cos(4 * theta)
     OP_x_cube_b, OP_y_cube_b = distance * math.sin(-2 * theta), distance * math.cos(-2 * theta)
     OP_x_sphere_r, OP_y_sphere_r = distance * math.sin(-3 * theta), distance * math.cos(-3 * theta)
     OP_x_cyl_y, OP_y_cyl_y = distance * math.sin(-4 * theta), distance * math.cos(-4 * theta)
+    # OP_x_cyl_y, OP_y_cyl_y = -distance * math.sin(theta), distance * math.cos(theta)
 
     vrep.simxSetFloatSignal(clientID, 'ObjPos_x', OP_x_cube, vrep.simx_opmode_oneshot)
     vrep.simxSetFloatSignal(clientID, 'ObjPos_y', OP_y_cube, vrep.simx_opmode_oneshot)
     vrep.simxSetStringSignal(clientID, 'Obj_type', 'Cube', vrep.simx_opmode_oneshot)
     errorCode, objHandles[0] = vrep.simxGetObjectHandle(clientID, 'Cuboid', vrep.simx_opmode_blocking)
+    obj_names.append('Cube_r')
     vrep.simxSetFloatSignal(clientID, 'ObjPos_x', OP_x_cyl, vrep.simx_opmode_oneshot)
     vrep.simxSetFloatSignal(clientID, 'ObjPos_y', OP_y_cyl, vrep.simx_opmode_oneshot)
     vrep.simxSetStringSignal(clientID, 'Obj_type', 'Cylinder', vrep.simx_opmode_oneshot)
     errorCode, objHandles[1] = vrep.simxGetObjectHandle(clientID, 'Cylinder', vrep.simx_opmode_blocking)
+    obj_names.append('Cylinder_b')
     vrep.simxSetFloatSignal(clientID, 'ObjPos_x', OP_x_sphere, vrep.simx_opmode_oneshot)
     vrep.simxSetFloatSignal(clientID, 'ObjPos_y', OP_y_sphere, vrep.simx_opmode_oneshot)
     vrep.simxSetStringSignal(clientID, 'Obj_type', 'Sphere', vrep.simx_opmode_oneshot)
     errorCode, objHandles[2] = vrep.simxGetObjectHandle(clientID, 'Sphere', vrep.simx_opmode_blocking)
+    obj_names.append('Sphere_y')
     vrep.simxSetFloatSignal(clientID, 'ObjPos_x', OP_x_cube_y, vrep.simx_opmode_oneshot)
     vrep.simxSetFloatSignal(clientID, 'ObjPos_y', OP_y_cube_y, vrep.simx_opmode_oneshot)
     vrep.simxSetStringSignal(clientID, 'Obj_type', 'Cube_y', vrep.simx_opmode_oneshot)
     errorCode, objHandles[3] = vrep.simxGetObjectHandle(clientID, 'Cuboid_y', vrep.simx_opmode_blocking)
+    obj_names.append('Cube_y')
     vrep.simxSetFloatSignal(clientID, 'ObjPos_x', OP_x_cyl_r, vrep.simx_opmode_oneshot)
     vrep.simxSetFloatSignal(clientID, 'ObjPos_y', OP_y_cyl_r, vrep.simx_opmode_oneshot)
     vrep.simxSetStringSignal(clientID, 'Obj_type', 'Cylinder_r', vrep.simx_opmode_oneshot)
     errorCode, objHandles[4] = vrep.simxGetObjectHandle(clientID, 'Cylinder_r', vrep.simx_opmode_blocking)
+    obj_names.append('Cylinder_r')
     vrep.simxSetFloatSignal(clientID, 'ObjPos_x', OP_x_sphere_b, vrep.simx_opmode_oneshot)
     vrep.simxSetFloatSignal(clientID, 'ObjPos_y', OP_y_sphere_b, vrep.simx_opmode_oneshot)
     vrep.simxSetStringSignal(clientID, 'Obj_type', 'Sphere_b', vrep.simx_opmode_oneshot)
     errorCode, objHandles[5] = vrep.simxGetObjectHandle(clientID, 'Sphere_b', vrep.simx_opmode_blocking)
+    obj_names.append('Sphere_b')
     vrep.simxSetFloatSignal(clientID, 'ObjPos_x', OP_x_cube_b, vrep.simx_opmode_oneshot)
     vrep.simxSetFloatSignal(clientID, 'ObjPos_y', OP_y_cube_b, vrep.simx_opmode_oneshot)
     vrep.simxSetStringSignal(clientID, 'Obj_type', 'Cube_b', vrep.simx_opmode_oneshot)
-    errorCode, objHandles[5] = vrep.simxGetObjectHandle(clientID, 'Cube_b', vrep.simx_opmode_blocking)
+    errorCode, objHandles[6] = vrep.simxGetObjectHandle(clientID, 'Cuboid_b', vrep.simx_opmode_blocking)
+    obj_names.append('Cube_b')
     vrep.simxSetFloatSignal(clientID, 'ObjPos_x', OP_x_sphere_r, vrep.simx_opmode_oneshot)
     vrep.simxSetFloatSignal(clientID, 'ObjPos_y', OP_y_sphere_r, vrep.simx_opmode_oneshot)
     vrep.simxSetStringSignal(clientID, 'Obj_type', 'Sphere_r', vrep.simx_opmode_oneshot)
-    errorCode, objHandles[5] = vrep.simxGetObjectHandle(clientID, 'Sphere_r', vrep.simx_opmode_blocking)
+    errorCode, objHandles[7] = vrep.simxGetObjectHandle(clientID, 'Sphere_r', vrep.simx_opmode_blocking)
+    obj_names.append('Sphere_r')
     vrep.simxSetFloatSignal(clientID, 'ObjPos_x', OP_x_cyl_y, vrep.simx_opmode_oneshot)
     vrep.simxSetFloatSignal(clientID, 'ObjPos_y', OP_y_cyl_y, vrep.simx_opmode_oneshot)
     vrep.simxSetStringSignal(clientID, 'Obj_type', 'Cylinder_y', vrep.simx_opmode_oneshot)
-    errorCode, objHandles[5] = vrep.simxGetObjectHandle(clientID, 'Cylinder_y', vrep.simx_opmode_blocking)
+    errorCode, objHandles[8] = vrep.simxGetObjectHandle(clientID, 'Cylinder_y', vrep.simx_opmode_blocking)
+    obj_names.append('Cylinder_y')
+
+    print(obj_names)
+    print(objHandles)
 
     vrep.simxSetStringSignal(clientID, 'Obj_type', 'All', vrep.simx_opmode_oneshot)
 
     return objHandles
+
+
+def choose_desired_object():
+    # print('Choosing object')
+    global obj_choice
+
+    errorCode, obj_disp_Handle = vrep.simxGetObjectHandle(clientID, 'Object_display', vrep.simx_opmode_blocking)
+    obj_pic_list = ['Cube_r.PNG', 'Cylinder_b.PNG', 'Sphere_y.PNG', 'Cube_y.PNG', 'Cylinder_r.PNG', 'Sphere_b.PNG',
+                    'Cube_b.PNG', 'Sphere_r.PNG', 'Cylinder_y.PNG']
+
+    obj_choice_num = int(random.random()*9)
+    obj_choice = obj_names[obj_choice_num]
+    print('Object Choice: ')
+    img_path = 'vrep_files/ObjectPics/' + obj_pic_list[obj_choice_num]
+    print(img_path)
+    try:
+        # obj_img = Image.open(img_path)
+        obj_img = cv2.imread(img_path)
+        img_shape = obj_img.shape
+        obj_img = cv2.resize(obj_img, (128, 128), interpolation=cv2.INTER_LINEAR)
+        obj_img = cv2.cvtColor(obj_img, cv2.COLOR_BGR2RGB)
+        obj_img = cv2.flip(obj_img, 0)
+        obj_img = obj_img.ravel()
+        returncode = vrep.simxSetVisionSensorImage(clientID, obj_disp_Handle, obj_img, 0, vrep.simx_opmode_blocking)
+    except IOError:
+        print('Could not find file ' + img_path)
 
 
 def image_process(im, resolution):
@@ -681,9 +732,11 @@ def read_bci_markers_vrep(robot_action):
         signal_val = signal_val - 1
         if len(final_markers) > 0:
             final_markers.append(signal_val)
-            markers_ts.append(time.process_time())
+            # markers_ts.append(time.process_time())
+            markers_ts.append(time.perf_counter())
         else:
-            init_ts_m = time.process_time()
+            # init_ts_m = time.process_time()
+            init_ts_m = time.perf_counter()
             final_markers.append(signal_val)
             markers_ts.append(init_ts_m)
 
@@ -707,25 +760,41 @@ def read_success_data_train():
     gripper_distance.append(dist)
 
 
-def read_success_data_test(grasped_object_handle):
+def read_success_data_test(grasped_object_handle, start_time, success):
     print("reading testing success data")
     # After grasp, add information about which object has been grasped, which was supposed to be, if they match,
     # how long the user took to complete the task, and so on
 
+    time_taken = time.perf_counter() - start_time
 
-def save_data(feedback=True, vrep=True):
+    print(obj_choice)
+    print(grasped_object)
+    success_data.append([obj_choice, grasped_object, success, time_taken])
+
+
+def save_data(feedback=True, vrep=True, markers=True, mode='train'):
     real_time_BCI.update_markers(final_markers, markers_ts)
-    real_time_BCI.save_data(feedback=feedback, vrep=vrep)
+    real_time_BCI.save_data(feedback=feedback, vrep=vrep, markers=markers, mode=mode)
 
 
-def save_success_data(subject_name="unworn"):
-    np.savetxt(subject_name + "_dist_data.csv", gripper_distance, delimiter=",")
+def save_success_data(subject_name="unworn", mode='test'):
+    if mode == 'train':
+        np.savetxt(subject_name + "_dist_data.csv", gripper_distance, delimiter=",")
+    if mode == 'test':
+        print(np.asarray(success_data))
+        np.savetxt(subject_name + "_test_success.csv", np.asarray(success_data), delimiter=",", fmt='%s')
 
 
-def depth_process(im_d, resolution, obj_x, obj_y):
-    # print ('max ', np.amax(im_d))
-    # print np.amin(im_d)
-    return
+def depth_process(im_d):
+    im_max = np.amax(im_d)
+    im_min = np.amin(im_d)
+
+    im_d = (im_d - im_min)/(im_max-im_min)
+
+    im_d_out = np.asarray(im_d).reshape(resolution[0], resolution[1])
+    im_d_out *= 256
+
+    return im_d_out
 
 
 def center_object(weight, im_x, im_y, resolution):
@@ -757,8 +826,9 @@ def center_object(weight, im_x, im_y, resolution):
 
 def full_center(im_x, im_y, center_res, resolution):
     print('Full Center!')
-    # tic_fc = time.clock()
-    tic_fc = time.process_time()
+
+    # tic_fc = time.process_time()
+    tic_fc = time.perf_counter()
     while not (((resolution[1]) / 2 - center_res < im_x < (resolution[0]) / 2 + center_res) and
                ((resolution[1]) / 2 - center_res < im_y < (resolution[1]) / 2 + center_res)):
 
@@ -774,8 +844,8 @@ def full_center(im_x, im_y, center_res, resolution):
             if len(obj_list) > 0:
                 im_x, im_y = obj_list[0][1], obj_list[0][2]
 
-        # toc_fc = time.clock()
-        toc_fc = time.process_time()
+        # toc_fc = time.process_time()
+        toc_fc = time.perf_counter()
         if toc_fc - tic_fc > 10:
             return 6
 
@@ -794,12 +864,12 @@ def search_object():
                                    vrep.simx_opmode_oneshot)
     vrep.simxSetJointTargetVelocity(clientID, joint_handles[0], 0.5, vrep.simx_opmode_streaming)
 
-    # tic_so = time.clock()
-    tic_so = time.process_time()
+    # tic_so = time.process_time()
+    tic_so = time.perf_counter()
     objectFound = False
     while objectFound is False:
-        # toc_so = time.clock()
-        toc_so = time.process_time()
+        # toc_so = time.process_time()
+        toc_so = time.perf_counter()
 
         errorCode2, resolution, image = vrep.simxGetVisionSensorImage(clientID, cam_Handle, 0, vrep.simx_opmode_buffer)
         im = np.array(image, dtype=np.uint8)
@@ -822,13 +892,13 @@ def search_object_2():
     print('Searching...')
     vrep.simxSetStringSignal(clientID, 'IKCommands', 'LookPos', vrep.simx_opmode_oneshot)  # "Looking" position
     center_res = 10
-    # tic_so = time.clock()
-    tic_so = time.process_time()
+    # tic_so = time.process_time()
+    tic_so = time.perf_counter()
     objectFound = False
 
     while objectFound is False:
-        # toc_so = time.clock()
-        toc_so = time.process_time()
+        # toc_so = time.process_time()
+        toc_so = time.perf_counter()
 
         errorCode2, resolution, image = vrep.simxGetVisionSensorImage(clientID, cam_Handle, 0, vrep.simx_opmode_buffer)
         im = np.array(image, dtype=np.uint8)
@@ -872,8 +942,8 @@ def search_object_bci(bci_iter, this_bci_iter, next_bci_iter, clf, num_channels=
     center_res = 10
     bci_update = 0.01
 
-    # tic_so = time.clock()
-    tic_so = time.process_time()
+    # tic_so = time.process_time()
+    tic_so = time.perf_counter()
     tic_bci = tic_so
     objectFound = False
     five_class_control = False
@@ -884,22 +954,11 @@ def search_object_bci(bci_iter, this_bci_iter, next_bci_iter, clf, num_channels=
     # get_bci_class_lsl
     bci_iter = bci_iter + 1
 
-    '''if time_limit:
-        # while bci_time + 3 < tic_bci:
-        while bci_iter < this_bci_iter:
-            next_state = read_bci_markers_vrep(0)
-            bci_class, cert = real_time_BCI.get_bci_class(bci_iter, clf)
-            if np.isnan(cert):
-                cert = 0.2
-            bci_iter = bci_iter + 1
-            # tic_bci = time.clock()
-            tic_bci = time.process_time()
-    '''
     vrep.simxSetStringSignal(clientID, 'robot_state', 'searching', vrep.simx_opmode_blocking)
 
     while objectFound is False:
-        # toc_so = time.clock()
-        toc_so = time.process_time()
+        # toc_so = time.process_time()
+        toc_so = time.perf_counter()
         # print('time_diff: ', toc_so - tic_bci)
 
         if mode == 'train':
@@ -912,11 +971,12 @@ def search_object_bci(bci_iter, this_bci_iter, next_bci_iter, clf, num_channels=
         if toc_so - tic_bci > bci_update:
             next_state = read_bci_markers_vrep(0)
             bci_class, cert = real_time_BCI.get_bci_class(bci_iter, clf)
-            # tic_bci = time.clock()
-            tic_bci = time.process_time()
+            # tic_bci = time.process_time()
+            tic_bci = time.perf_counter()
             bci_iter = bci_iter + 1
             if np.isnan(cert):
-                cert = 0.2
+                # cert = 0.2
+                cert = 0.02
             # print bci_time, tic_bci
 
         if five_class_control:
@@ -958,9 +1018,11 @@ def search_object_bci(bci_iter, this_bci_iter, next_bci_iter, clf, num_channels=
     return bci_iter, 1
 
 
-def start_pos(joint_start):
+def start_pos(joint_start, start_time, mode='train'):
     # print('StartPos!')
+    global objHandle
     success, max_height, i = 0, 0, 0
+    grasped_object_found = False
 
     joint_pos, joint_success = np.zeros(len(joint_start)), np.zeros(len(joint_start))
 
@@ -974,6 +1036,14 @@ def start_pos(joint_start):
     vrep.simxSetJointTargetVelocity(clientID, joint_handles[1], 0.5, vrep.simx_opmode_oneshot)
     tic_sp = time.time()
     while sum(joint_success) < len(joint_start):
+        if not grasped_object_found:
+            for handle in objHandles:
+                checkO, obj_pos = vrep.simxGetObjectPosition(clientID, int(handle), -1, vrep.simx_opmode_blocking)
+                if obj_pos[2] > 0.07:
+                    print('Object is higher than 0.07. Height: ', obj_pos[2])
+                    objHandle = int(handle)
+                    grasped_object_found = True
+
         try:
             checkO, obj_pos = vrep.simxGetObjectPosition(clientID, objHandle, -1, vrep.simx_opmode_blocking)
         except NameError:
@@ -1007,11 +1077,12 @@ def start_pos(joint_start):
                                            vrep.simx_opmode_oneshot)
             vrep.simxSetJointTargetVelocity(clientID, joint_handles[i], 0, vrep.simx_opmode_oneshot)
 
-            read_success_data_test(objHandle)
-
             if max_height > 0.22:
                 print('success!')
                 success = 1
+
+            if mode == 'test':
+                read_success_data_test(objHandle, start_time, success)
 
             return [success, max_height]
 
@@ -1031,16 +1102,16 @@ def start_pos_grip(grip_joint_start):
         vrep.simxSetObjectIntParameter(clientID, gripper_handles[i], vrep.sim_jointintparam_velocity_lock, 1,
                                        vrep.simx_opmode_oneshot)
 
-    # tic_sp = time.clock()
-    tic_sp = time.process_time()
+    # tic_sp = time.process_time()
+    tic_sp = time.perf_counter()
     while sum(grip_joint_success) < len(grip_joint_start) - 2:
 
         try:
             checkO, obj_pos = vrep.simxGetObjectPosition(clientID, objHandle, -1, vrep.simx_opmode_blocking)
         except NameError:
             obj_pos = [0, 0, 0]
-        # toc_sp = time.clock()
-        toc_sp = time.process_time()
+        # toc_sp = time.process_time()
+        toc_sp = time.perf_counter()
         if obj_pos[2] > max_height:
             max_height = obj_pos[2]
 
@@ -1133,7 +1204,8 @@ def approach1_bci(prop_thresh, vel_1, center_res, cent_weight, jps_thresh, bci_c
 
                     center_object(cent_weight, obj_x, obj_y, resolution)
     else:
-        vrep.simxSetJointTargetVelocity(clientID, joint_handles[1], cert * vel_1, vrep.simx_opmode_oneshot)
+        vrep.simxSetJointTargetVelocity(clientID, joint_handles[1], cert * vel_1 / 2, vrep.simx_opmode_oneshot)
+        # vrep.simxSetJointTargetVelocity(clientID, joint_handles[1], vel_1, vrep.simx_opmode_oneshot)
         vrep.simxSetObjectIntParameter(clientID, joint_handles[1], vrep.sim_jointintparam_ctrl_enabled, 0,
                                        vrep.simx_opmode_oneshot)
         vrep.simxSetObjectIntParameter(clientID, joint_handles[1], vrep.sim_jointintparam_velocity_lock, 1,
@@ -1376,6 +1448,7 @@ def visual_feedback():
         print('no object in view')
 
     img2 = img2.ravel()
+    # print(img2.shape)
 
     returncode = vrep.simxSetVisionSensorImage(clientID, aug_Handle, img2, 0, vrep.simx_opmode_oneshot)
 
@@ -1384,10 +1457,160 @@ def visual_feedback():
 
 
 def send_obj_sig(obj_type):
-    if obj_type=='Cube':
+    if obj_type == 'Cube':
         vrep.simxSetIntegerSignal(clientID, 'sig', 4, vrep.simx_opmode_oneshot)
     elif obj_type == 'Cyl':
         vrep.simxSetIntegerSignal(clientID, 'sig', 1, vrep.simx_opmode_oneshot)
     elif obj_type == 'Sphere':
         vrep.simxSetIntegerSignal(clientID, 'sig', 4, vrep.simx_opmode_oneshot)
     return
+
+
+def train_cv_network():
+    global model
+    # Try to find pre-trained model
+
+    # If can't find, then build and train from scratch
+    print('Training CV network!')
+    model = tf.keras.models.Sequential([
+        tf.keras.layers.Conv2D(32, (3, 3), activation='relu', input_shape=(128, 128, 1)),
+        tf.keras.layers.MaxPooling2D((2, 2)),
+        tf.keras.layers.Conv2D(32, (3, 3), activation='relu'),
+        tf.keras.layers.MaxPooling2D((2, 2)),
+        tf.keras.layers.Conv2D(32, (3, 3), activation='relu'),
+        tf.keras.layers.MaxPooling2D((2, 2)),
+        tf.keras.layers.Conv2D(32, (3, 3), activation='relu'),
+        tf.keras.layers.MaxPooling2D((2, 2)),
+        tf.keras.layers.Conv2D(32, (3, 3), activation='relu'),
+        tf.keras.layers.MaxPooling2D((2, 2)),
+        tf.keras.layers.Flatten(),
+        tf.keras.layers.Dense(64, activation='relu'),
+        tf.keras.layers.Dense(3, activation='softmax')
+    ])
+
+    print(model.summary())
+
+    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+
+    im_path = "D:/BCIRobotControl/training_images"
+
+    train_images = []
+    train_labels = []
+    for im_name in os.listdir(im_path):
+        # print(im_name)
+        im = cv2.imread(im_path + "/" + im_name)
+        im_d = im[:, :, 0]
+        train_images.append(im_d)
+        train_labels.append(int(im_name[0]))
+
+    unique, counts = np.unique(train_labels, return_counts=True)
+    print("Image labels (all): ", unique, counts)
+
+    # shuffle training images and labels
+    images_tr, labels_tr, images_val, labels_val = shuffle_split_ims(np.asarray(train_images), np.asarray(train_labels))
+
+    unique, counts = np.unique(labels_tr, return_counts=True)
+    print("Image labels (train): ", unique, counts)
+    unique, counts = np.unique(labels_val, return_counts=True)
+    print("Image labels (val): ", unique, counts)
+
+    model.fit(images_tr, labels_tr, epochs=10, batch_size=16)
+    model.evaluate(images_val, labels_val, batch_size=16)
+    predictions = model.predict(images_val)
+    pred_out = np.argmax(predictions, axis=1)
+    confusion = confusion_matrix(labels_val, pred_out)
+    print(confusion)
+
+
+def shuffle_split_ims(ims, labels):
+    ones, twos, threes = [], [], []
+    labels = labels-1
+    ims = ims / 256.0
+    # one_count, two_count, three_count = 0, 0, 0
+    for i in range(len(ims)):
+        if labels[i] == 1:
+            ones.append(ims)
+        elif labels[i] == 2:
+            if len(twos) < len(ones):
+                twos.append(ims)
+        elif labels[i] == 3:
+            if len(threes) < len(twos) and len(threes) < len(ones):
+                threes.append(ims)
+
+    test_split = 0.8
+
+    ims_out, labels_out = shuffle(ims, labels)
+    im_train = ims_out[:int(test_split * len(ims_out))]
+    im_train = im_train.reshape((im_train.shape[0], im_train.shape[1], im_train.shape[2], 1))
+    labels_train = labels_out[:int(test_split * len(labels_out))]
+    im_val = ims_out[int(test_split * len(ims_out)):]
+    im_val = im_val.reshape((im_val.shape[0], im_val.shape[1], im_val.shape[2], 1))
+    labels_val = labels_out[int(test_split * len(labels_out)):]
+
+    return im_train, labels_train, im_val, labels_val
+
+
+def classify_object(iter_num):
+    print('Classifying object')
+    save_object_im = False
+
+    errorCode2, resolution, image = vrep.simxGetVisionSensorImage(clientID, cam_Handle, 0,
+                                                                  vrep.simx_opmode_buffer)
+    errorCode2, resolution, image_d = vrep.simxGetVisionSensorDepthBuffer(clientID, cam_Handle,
+                                                                          vrep.simx_opmode_buffer)
+
+    image_d_out = depth_process(image_d)
+
+    if save_object_im:
+
+        # cv2.imshow('depth', image_d_out)
+        im_save_name = 'training_images/' + str(iter_num) + '.png'
+        cv2.imwrite(im_save_name, image_d_out)
+        # im_num += 1
+
+    classify_shape(image_d_out)
+    im = np.array(image, dtype=np.uint8)
+    classify_color(im)
+
+
+def classify_shape(image_d):
+
+    global grasped_object
+
+    print('Predicted Shape: ')
+    image_d = image_d/256.0
+    image_d = image_d.reshape((1, image_d.shape[0], image_d.shape[1], 1))
+    pred = model.predict(image_d)
+    pred_out = np.argmax(pred)
+
+    print(pred_out)
+    if pred_out == 0:
+        grasped_object = 'cube'
+        print("Cube!")
+    elif pred_out == 1:
+        grasped_object = 'cylinder'
+        print("Cylinder!")
+    elif pred_out == 2:
+        grasped_object = 'sphere'
+        print("Sphere!")
+
+
+def classify_color(image):
+    global grasped_object
+
+    if len(resolution) > 0:
+        image.resize([resolution[0], resolution[1], 3])
+        ret_obj = image_process(image, resolution)
+
+        if ret_obj[0] == 1:
+            grasped_object += '_r'
+            print("Red!")
+        elif ret_obj[0] == 2:
+            grasped_object += '_b'
+            print("Blue!")
+        elif ret_obj[0] == 3:
+            grasped_object += '_y'
+            print("Yellow!")
+
+
+
