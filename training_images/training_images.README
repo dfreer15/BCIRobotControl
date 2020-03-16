@@ -1,0 +1,1 @@
+A folder for labelled depth images which train a neural network to classify the shape of a scene object into cube (1), cylinder (2), or sphere (3).
