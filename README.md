@@ -8,7 +8,7 @@ To run the MIndGrasp Trainer, download V-REP (now CoppeliaSim) and run the scene
 To run the MIndGrasp Tester, similarly run the scene:
 BCIRobotControl/vrep_files/Scenes/HamlynArm_Grasp.ttt
 
-To connect to V-REP and start controlling the robot, use robot_grasp.py, ensuring that the variable "mode" is set to either 'train' or 'test', depending on which scene you are running.
+To connect to V-REP and start controlling the robot, use robot_grasp.py, ensuring that the variable "mode" is set to either 'train' or 'test', depending on which scene you are running. In both scenes, it may be helpful to collect more training images for object shape determination. To do this, go to Grasp_Learn_Func.py and ensure that the variable "save_object_im" (in the function classify_object) is set to True.
 
 For any further questions, please contact Daniel Freer via df1215@ic.ac.uk or freerdan00@gmail.com.
 
